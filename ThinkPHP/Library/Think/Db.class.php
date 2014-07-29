@@ -45,7 +45,7 @@ class Db {
     // 数据库表达式
     protected $comparison = array('eq'=>'=','neq'=>'<>','gt'=>'>','egt'=>'>=','lt'=>'<','elt'=>'<=','notlike'=>'NOT LIKE','like'=>'LIKE','in'=>'IN','notin'=>'NOT IN');
     // 查询表达式
-    protected $selectSql  = 'SELECT%DISTINCT% %FIELD% FROM %TABLE%%JOIN%%WHERE%%GROUP%%HAVING%%ORDER%%LIMIT% %UNION%%LOCK%%COMMENT%';
+    protected $selectSql  = 'SELECT%DISTINCT% %FIELD% FROM %TABLE%%FORCE%%JOIN%%WHERE%%GROUP%%HAVING%%ORDER%%LIMIT% %UNION%%LOCK%%COMMENT%';
     // 参数绑定
     protected $bind       = array();
 
@@ -521,9 +521,9 @@ class Db {
             }
         }else {
             //对字符串类型字段采用模糊匹配
-            if(C('DB_LIKE_FIELDS') && preg_match('/('.C('DB_LIKE_FIELDS').')/i',$key)) {
-                $val  =  '%'.$val.'%';
-                $whereStr .= $key.' LIKE '.$this->parseValue($val);
+            $likeFields   =   C('DB_LIKE_FIELDS');
+            if($likeFields && preg_match('/^('.$likeFields.')$/i',$key)) {
+                $whereStr .= $key.' LIKE '.$this->parseValue('%'.$val.'%');
             }else {
                 $whereStr .= $key.' = '.$this->parseValue($val);
             }
@@ -680,6 +680,18 @@ class Db {
             $sql[] = $str.(is_array($u)?$this->buildSelectSql($u):$u);
         }
         return implode(' ',$sql);
+    }
+
+    /**
+     * index分析，可在操作链中指定需要强制使用的索引
+     * @access protected
+     * @param mixed $index
+     * @return string
+     */
+    protected function parseForce($index) {
+        if(empty($index)) return '';
+        if(is_array($index)) $index = join(",", $index);
+        return sprintf(" FORCE INDEX ( %s ) ", $index);
     }
 
     /**
@@ -845,7 +857,7 @@ class Db {
      */
     public function parseSql($sql,$options=array()){
         $sql   = str_replace(
-            array('%TABLE%','%DISTINCT%','%FIELD%','%JOIN%','%WHERE%','%GROUP%','%HAVING%','%ORDER%','%LIMIT%','%UNION%','%LOCK%','%COMMENT%'),
+            array('%TABLE%','%DISTINCT%','%FIELD%','%JOIN%','%WHERE%','%GROUP%','%HAVING%','%ORDER%','%LIMIT%','%UNION%','%LOCK%','%COMMENT%','%FORCE%'),
             array(
                 $this->parseTable($options['table']),
                 $this->parseDistinct(isset($options['distinct'])?$options['distinct']:false),
@@ -858,7 +870,8 @@ class Db {
                 $this->parseLimit(!empty($options['limit'])?$options['limit']:''),
                 $this->parseUnion(!empty($options['union'])?$options['union']:''),
                 $this->parseLock(isset($options['lock'])?$options['lock']:false),             
-                $this->parseComment(!empty($options['comment'])?$options['comment']:'')
+                $this->parseComment(!empty($options['comment'])?$options['comment']:''),
+                $this->parseForce(!empty($options['force'])?$options['force']:'')
             ),$sql);
         return $sql;
     }
