@@ -107,10 +107,12 @@ class Model {
             // 如果数据表字段没有定义则自动获取
             if(C('DB_FIELDS_CACHE')) {
                 $db   =  $this->dbName?:C('DB_NAME');
-                $fields = F('_fields/'.strtolower($db.'.'.$this->name));
+                $fields = F('_fields/'.strtolower($db.'.'.$this->tablePrefix.$this->name));
                 if($fields) {
                     $this->fields   =   $fields;
-                    $this->pk       =   $fields['_pk'];
+                    if(!empty($fields['_pk'])){
+                        $this->pk       =   $fields['_pk'];
+                    }
                     return ;
                 }
             }
@@ -159,7 +161,7 @@ class Model {
         if(C('DB_FIELDS_CACHE')){
             // 永久缓存数据表信息
             $db   =  $this->dbName?:C('DB_NAME');
-            F('_fields/'.strtolower($db.'.'.$this->name),$this->fields);
+            F('_fields/'.strtolower($db.'.'.$this->tablePrefix.$this->name),$this->fields);
         }
     }
 
@@ -264,7 +266,7 @@ class Model {
                 if(!in_array($key,$fields,true)){
                     if(!empty($this->options['strict'])){
                         E(L('_DATA_TYPE_INVALID_').':['.$key.'=>'.$val.']');
-                    }                 
+                    }
                     unset($data[$key]);
                 }elseif(is_scalar($val)) {
                     // 字段类型检查 和 强制转换
@@ -305,10 +307,10 @@ class Model {
                 return false;
             }
         }
-        // 分析表达式
-        $options    =   $this->_parseOptions($options);
         // 数据处理
         $data       =   $this->_facade($data);
+        // 分析表达式
+        $options    =   $this->_parseOptions($options);
         if(false === $this->_before_insert($data,$options)) {
             return false;
         }
@@ -343,12 +345,12 @@ class Model {
             $this->error = L('_DATA_TYPE_INVALID_');
             return false;
         }
-        // 分析表达式
-        $options =  $this->_parseOptions($options);
         // 数据处理
         foreach ($dataList as $key=>$data){
             $dataList[$key] = $this->_facade($data);
         }
+        // 分析表达式
+        $options =  $this->_parseOptions($options);
         // 写入数据到数据库
         $result = $this->db->insertAll($dataList,$options,$replace);
         if(false !== $result ) {
@@ -440,10 +442,10 @@ class Model {
 
         if(is_array($options['where']) && isset($options['where'][$pk])){
             $pkValue    =   $options['where'][$pk];
-        }        
+        }
         if(false === $this->_before_update($data,$options)) {
             return false;
-        }        
+        }
         $result     =   $this->db->update($data,$options);
         if(false !== $result && is_numeric($result)) {
             if(isset($pkValue)) $data[$pk]   =  $pkValue;
@@ -612,13 +614,10 @@ class Model {
     /**
      * 生成查询SQL 可用于子查询
      * @access public
-     * @param array $options 表达式参数
      * @return string
      */
-    public function buildSql($options=array()) {
-        // 分析表达式
-        $options =  $this->_parseOptions($options);
-        return  '( '.$this->fetchSql(true)->select($options).' )';
+    public function buildSql() {
+        return  '( '.$this->fetchSql(true)->select().' )';
     }
 
     /**
@@ -726,7 +725,7 @@ class Model {
             $options                =   array();
             $options['where']       =   $where;
         }
-        // 根据复合主键删除记录
+        // 根据复合主键查找记录
         $pk  =  $this->getPk();
         if (is_array($options) && (count($options) > 0) && is_array($pk)) {
             // 根据复合主键查询
@@ -849,9 +848,16 @@ class Model {
      * @access public
      * @param string $field  字段名
      * @param integer $step  增长值
+     * @param integer $lazyTime  延时时间(s)
      * @return boolean
      */
-    public function setInc($field,$step=1) {
+    public function setInc($field,$step=1,$lazyTime=0) {
+        if($lazyTime>0) {// 延迟写入
+            $condition   =  $this->options['where'];
+            $guid =  md5($this->name.'_'.$field.'_'.serialize($condition));
+            $step = $this->lazyWrite($guid,$step,$lazyTime);
+            if(false === $step ) return true; // 等待下次写入
+        }
         return $this->setField($field,array('exp',$field.'+'.$step));
     }
 
@@ -860,10 +866,46 @@ class Model {
      * @access public
      * @param string $field  字段名
      * @param integer $step  减少值
+     * @param integer $lazyTime  延时时间(s)
      * @return boolean
      */
-    public function setDec($field,$step=1) {
+    public function setDec($field,$step=1,$lazyTime=0) {
+        if($lazyTime>0) {// 延迟写入
+            $condition   =  $this->options['where'];
+            $guid =  md5($this->name.'_'.$field.'_'.serialize($condition));
+            $step = $this->lazyWrite($guid,$step,$lazyTime);
+            if(false === $step ) return true; // 等待下次写入
+        }
         return $this->setField($field,array('exp',$field.'-'.$step));
+    }
+
+    /**
+     * 延时更新检查 返回false表示需要延时
+     * 否则返回实际写入的数值
+     * @access public
+     * @param string $guid  写入标识
+     * @param integer $step  写入步进值
+     * @param integer $lazyTime  延时时间(s)
+     * @return false|integer
+     */
+    protected function lazyWrite($guid,$step,$lazyTime) {
+        if(false !== ($value = S($guid))) { // 存在缓存写入数据
+            if(NOW_TIME > S($guid.'_time')+$lazyTime) {
+                // 延时更新时间到了，删除缓存数据 并实际写入数据库
+                S($guid,NULL);
+                S($guid.'_time',NULL);
+                return $value+$step;
+            }else{
+                // 追加数据到缓存
+                S($guid,$value+$step);
+                return false;
+            }
+        }else{ // 没有缓存数据
+            S($guid,$step);
+            // 计时开始
+            S($guid.'_time',NOW_TIME);
+            return false;
+        }
     }
 
     /**
@@ -894,12 +936,12 @@ class Model {
             if(!empty($resultSet)) {
                 $_field         =   explode(',', $field);
                 $field          =   array_keys($resultSet[0]);
-                $key            =   array_shift($field);
+                $key1           =   array_shift($field);
                 $key2           =   array_shift($field);
                 $cols           =   array();
                 $count          =   count($_field);
                 foreach ($resultSet as $result){
-                    $name   =  $result[$key];
+                    $name   =  $result[$key1];
                     if(2==$count) {
                         $cols[$name]   =  $result[$key2];
                     }else{
@@ -1056,7 +1098,7 @@ class Model {
         $validate = array(
             'require'   =>  '/\S+/',
             'email'     =>  '/^\w+([-+.]\w+)*@\w+([-.]\w+)*\.\w+([-.]\w+)*$/',
-            'url'       =>  '/^http(s?):\/\/(?:[A-za-z0-9-]+\.)+[A-za-z]{2,4}(:\d+)?(?:[\/\?#][\/=\?%\-&~`@[\]\':+!\.#\w]*)?$/',            
+            'url'       =>  '/^http(s?):\/\/(?:[A-za-z0-9-]+\.)+[A-za-z]{2,4}(:\d+)?(?:[\/\?#][\/=\?%\-&~`@[\]\':+!\.#\w]*)?$/',
             'currency'  =>  '/^\d+(\.\d+)?$/',
             'number'    =>  '/^\d+$/',
             'zip'       =>  '/^\d{6}$/',
@@ -1238,8 +1280,9 @@ class Model {
                 }else{
                     $map[$val[0]] = $data[$val[0]];
                 }
-                if(is_string($this->getPk()) && !empty($data[$this->getPk()])) { // 完善编辑的时候验证唯一
-                    $map[$this->getPk()] = array('neq',$data[$this->getPk()]);
+                $pk =   $this->getPk();
+                if(!empty($data[$pk]) && is_string($pk)) { // 完善编辑的时候验证唯一
+                    $map[$pk] = array('neq',$data[$pk]);
                 }
                 if($this->where($map)->find())   return false;
                 return true;
@@ -1511,9 +1554,13 @@ class Model {
      */
     public function getDbFields(){
         if(isset($this->options['table'])) {// 动态指定表名
-            $array      =   explode(' ',$this->options['table']);
-            $fields     =   $this->db->getFields($array[0]);
-            return  $fields?array_keys($fields):false;
+            if(is_array($this->options['table'])){
+                $table  =   key($this->options['table']);
+            }else{
+                $table  =   $this->options['table'];
+            }
+            $fields     =   $this->db->getFields($table);
+            return  $fields ? array_keys($fields) : false;
         }
         if($this->fields) {
             $fields     =  $this->fields;

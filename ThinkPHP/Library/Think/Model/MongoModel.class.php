@@ -136,7 +136,7 @@ class MongoModel extends Model{
         if(empty($pk)) {
             $pk   =  $this->getPk();
         }
-        return $this->db->mongo_next_id($pk);
+        return $this->db->getMongoNextId($pk);
     }
 
     /**
@@ -183,7 +183,7 @@ class MongoModel extends Model{
         if($this->_autoinc && $this->_idType== self::TYPE_INT) { // 主键自动增长
             $pk   =  $this->getPk();
             if(!isset($data[$pk])) {
-                $data[$pk]   =  $this->db->mongo_next_id($pk);
+                $data[$pk]   =  $this->db->getMongoNextId($pk);
             }
         }
     }
@@ -370,8 +370,7 @@ class MongoModel extends Model{
      * @access public
      * @return string
      */
-    public function group($key, $init, $reduce, $option=array())
-    {
+    public function group($key, $init, $reduce, $option=array()) {
         $option = $this->_parseOptions($option);
 
         //合并查询条件
@@ -398,5 +397,23 @@ class MongoModel extends Model{
     public function status(){
         $option = $this->_parseOptions();
         return $this->db->command(array('collStats'=>$option['table']));
+    }
+    
+    /**
+     * 取得当前数据库的对象
+     * @access public
+     * @return object
+     */
+    public function getDB(){
+        return $this->db->getDB();
+    }
+    
+    /**
+     * 取得集合对象，可以进行创建索引等查询
+     * @access public
+     * @return object
+     */
+    public function getCollection(){
+        return $this->db->getCollection();
     }
 }

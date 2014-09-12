@@ -77,7 +77,6 @@ function load_config($file,$parse=CONF_PARSE){
                 E(L('_NOT_SUPPORT_').':'.$ext);
             }
     }
-	return array();
 }
 
 /**
@@ -138,7 +137,7 @@ function G($start,$end='',$dec=4) {
         $_info[$start]  =  microtime(TRUE);
         if(MEMORY_LIMIT_ON) $_mem[$start]           =  memory_get_usage();
     }
-	return null;
+    return null;
 }
 
 /**
@@ -181,10 +180,10 @@ function L($name=null, $value=null) {
  * @param string $label 标签
  * @param string $level 日志级别
  * @param boolean $record 是否记录日志
- * @return void
+ * @return void|array
  */
 function trace($value='[think]',$label='',$level='DEBUG',$record=false) {
-    Think\Think::trace($value,$label,$level,$record);
+    return Think\Think::trace($value,$label,$level,$record);
 }
 
 /**
@@ -348,13 +347,13 @@ function I($name,$default='',$filter=null,$datas=null) {
 }
 
 function array_map_recursive($filter, $data) {
-     $result = array();
-     foreach ($data as $key => $val) {
-         $result[$key] = is_array($val)
-             ? array_map_recursive($filter, $val)
-             : call_user_func($filter, $val);
-     }
-     return $result;
+    $result = array();
+    foreach ($data as $key => $val) {
+        $result[$key] = is_array($val)
+         ? array_map_recursive($filter, $val)
+         : call_user_func($filter, $val);
+    }
+    return $result;
  }
 
 /**
@@ -376,15 +375,15 @@ function N($key, $step=0,$save=false) {
     if (!isset($_num[$key])) {
         $_num[$key] = (false !== $save)? S('N_'.$key) :  0;
     }
-	if (empty($step)){
-		return $_num[$key];
-	}else{
-		$_num[$key] = $_num[$key] + (int)$step;
-	}
+    if (empty($step)){
+        return $_num[$key];
+    }else{
+        $_num[$key] = $_num[$key] + (int)$step;
+    }
     if(false !== $save){ // 保存结果
         S('N_'.$key,$_num[$key],$save);
     }
-	return null;
+    return null;
 }
 
 /**
@@ -456,6 +455,10 @@ function import($class, $baseUrl = '', $ext=EXT) {
             //加载当前模块的类库
             $baseUrl = MODULE_PATH;
             $class   = substr_replace($class, '', 0, strlen($class_strut[0]) + 1);
+        }elseif ('Common' == $class_strut[0]) {
+            //加载公共模块的类库
+            $baseUrl = COMMON_PATH;
+            $class   = substr($class, 7);
         }elseif (in_array($class_strut[0],array('Think','Org','Behavior','Com','Vendor')) || is_dir(LIB_PATH.$class_strut[0])) {
             // 系统类库包和第三方类库包
             $baseUrl = LIB_PATH;
@@ -470,7 +473,7 @@ function import($class, $baseUrl = '', $ext=EXT) {
         // 如果类不存在 则导入类库文件
         return require_cache($classfile);
     }
-	return null;
+    return null;
 }
 
 /**
@@ -819,10 +822,6 @@ function layout($layout) {
  * @return string
  */
 function U($url='',$vars='',$suffix=true,$domain=false) {
-	/**
-	 * @var string $module
-	 * @var array $var
-	 */
     // 解析URL
     $info   =  parse_url($url);
     $url    =  !empty($info['path'])?$info['path']:ACTION_NAME;
@@ -930,8 +929,7 @@ function U($url='',$vars='',$suffix=true,$domain=false) {
         }
     }
 
-	
-	if(C('URL_MODEL') == 0) { // 普通模式URL转换
+    if(C('URL_MODEL') == 0) { // 普通模式URL转换
         $url        =   __APP__.'?'.C('VAR_MODULE')."={$module}&".http_build_query(array_reverse($var));
         if($urlCase){
             $url    =   strtolower($url);
@@ -1249,10 +1247,19 @@ function session($name='',$value='') {
             }            
         }
     }elseif(is_null($value)){ // 删除session
-        if($prefix){
-            unset($_SESSION[$prefix][$name]);
+        if(strpos($name,'.')){
+            list($name1,$name2) =   explode('.',$name);
+            if($prefix){
+                unset($_SESSION[$prefix][$name1][$name2]);
+            }else{
+                unset($_SESSION[$name1][$name2]);
+            }
         }else{
-            unset($_SESSION[$name]);
+            if($prefix){
+                unset($_SESSION[$prefix][$name]);
+            }else{
+                unset($_SESSION[$name]);
+            }
         }
     }else{ // 设置session
         if($prefix){
