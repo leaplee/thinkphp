@@ -10,7 +10,7 @@
 // +----------------------------------------------------------------------
 namespace Think;
 /**
- * ThinkPHP API模式 应用程序类
+ * ThinkPHP 应用程序类 执行应用过程管理
  */
 class App {
 
@@ -20,6 +20,10 @@ class App {
      * @return void
      */
     static public function init() {
+
+        // 日志目录转换为绝对路径 默认情况下存储到公共模块下面
+        C('LOG_PATH',   realpath(LOG_PATH).'/Common/');
+
         // 定义当前请求的系统常量
         define('NOW_TIME',      $_SERVER['REQUEST_TIME']);
         define('REQUEST_METHOD',$_SERVER['REQUEST_METHOD']);
@@ -27,7 +31,6 @@ class App {
         define('IS_POST',       REQUEST_METHOD =='POST' ? true : false);
         define('IS_PUT',        REQUEST_METHOD =='PUT' ? true : false);
         define('IS_DELETE',     REQUEST_METHOD =='DELETE' ? true : false);
-        define('IS_AJAX',       ((isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') || !empty($_POST[C('VAR_AJAX_SUBMIT')]) || !empty($_GET[C('VAR_AJAX_SUBMIT')])) ? true : false);
 
         // URL调度
         Dispatcher::dispatch();
@@ -39,8 +42,8 @@ class App {
 			array_walk_recursive($_REQUEST,	'think_filter');
 		}
 
-        // 日志目录转换为绝对路径
-        C('LOG_PATH',realpath(LOG_PATH).'/');
+        define('IS_AJAX',       ((isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') || !empty($_POST[C('VAR_AJAX_SUBMIT')]) || !empty($_GET[C('VAR_AJAX_SUBMIT')])) ? true : false);
+
         // TMPL_EXCEPTION_FILE 改为绝对地址
         C('TMPL_EXCEPTION_FILE',realpath(C('TMPL_EXCEPTION_FILE')));
         return ;
@@ -57,7 +60,7 @@ class App {
             $module  =  false;
         }else{
             //创建控制器实例
-            $module  =  A(CONTROLLER_NAME);
+            $module  =  controller(CONTROLLER_NAME);                
         }
 
         if(!$module) {
@@ -69,7 +72,7 @@ class App {
         }
 
         // 获取当前操作名 支持动态路由
-        $action     =   ACTION_NAME;
+        $action    =   ACTION_NAME.C('ACTION_SUFFIX');  
 
         try{
             if(!preg_match('/^[A-Za-z](\w)*$/',$action)){
@@ -81,7 +84,7 @@ class App {
             if($method->isPublic() && !$method->isStatic()) {
                 $class  =   new \ReflectionClass($module);
                 // URL参数绑定检测
-                if(C('URL_PARAMS_BIND') && $method->getNumberOfParameters()>0){
+                if($method->getNumberOfParameters()>0 && C('URL_PARAMS_BIND')){
                     switch($_SERVER['REQUEST_METHOD']) {
                         case 'POST':
                             $vars    =  array_merge($_GET,$_POST);
@@ -105,6 +108,16 @@ class App {
                         }else{
                             E(L('_PARAM_ERROR_').':'.$name);
                         }   
+                    }
+                    // 开启绑定参数过滤机制
+                    if(C('URL_PARAMS_SAFE')){
+                        $filters     =   C('URL_PARAMS_FILTER')?:C('DEFAULT_FILTER');
+                        if($filters) {
+                            $filters    =   explode(',',$filters);
+                            foreach($filters as $filter){
+                                $args   =   array_map_recursive($filter,$args); // 参数过滤
+                            }
+                        }                        
                     }
 					array_walk_recursive($args,'think_filter');
                     $method->invokeArgs($module,$args);
